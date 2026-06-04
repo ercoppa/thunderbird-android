@@ -5,6 +5,7 @@ import app.k9mail.legacy.mailstore.MessageMapper
 import app.k9mail.legacy.message.extractors.PreviewResult.PreviewType
 import assertk.assertThat
 import assertk.assertions.containsExactly
+import assertk.assertions.containsExactlyInAnyOrder
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
@@ -492,6 +493,60 @@ class RetrieveMessageListOperationsTest : RobolectricTest() {
         val result = retrieveMessageListOperations.getThread(threadId = threadId2, sortOrder = "date DESC") { it.id }
 
         assertThat(result).containsExactly(messageId2, messageId3)
+    }
+
+    @Test
+    fun `getThread() includes sent message from another folder when opened from inbox`() {
+        val (inboxThreadId, _, sentMessageId, receivedMessageId) = createCrossFolderConversation()
+
+        val result = retrieveMessageListOperations.getThread(threadId = inboxThreadId, sortOrder = "date ASC") { it.id }
+
+        assertThat(result).containsExactlyInAnyOrder(sentMessageId, receivedMessageId)
+    }
+
+    @Test
+    fun `getThread() includes received message from another folder when opened from sent`() {
+        val (_, sentThreadRootId, sentMessageId, receivedMessageId) = createCrossFolderConversation()
+
+        val result = retrieveMessageListOperations.getThread(threadId = sentThreadRootId, sortOrder = "date ASC") { it.id }
+
+        assertThat(result).containsExactlyInAnyOrder(sentMessageId, receivedMessageId)
+    }
+
+    private data class CrossFolderConversation(
+        val inboxThreadId: Long,
+        val sentThreadRootId: Long,
+        val sentMessageId: Long,
+        val receivedMessageId: Long,
+    )
+
+    private fun createCrossFolderConversation(): CrossFolderConversation {
+        val sentFolderId = sqliteDatabase.createFolder()
+        val inboxFolderId = sqliteDatabase.createFolder()
+
+        val placeholderId = sqliteDatabase.createMessage(
+            sentFolderId,
+            empty = true,
+            messageIdHeader = "<A@domain.example>",
+        )
+        val sentThreadRootId = sqliteDatabase.createThread(placeholderId)
+        val sentMessageId = sqliteDatabase.createMessage(
+            sentFolderId,
+            uid = "sent1",
+            date = 200L,
+            messageIdHeader = "<B@domain.example>",
+        )
+        sqliteDatabase.createThread(sentMessageId, root = sentThreadRootId, parent = sentThreadRootId)
+
+        val receivedMessageId = sqliteDatabase.createMessage(
+            inboxFolderId,
+            uid = "inbox1",
+            date = 100L,
+            messageIdHeader = "<A@domain.example>",
+        )
+        val inboxThreadId = sqliteDatabase.createThread(receivedMessageId)
+
+        return CrossFolderConversation(inboxThreadId, sentThreadRootId, sentMessageId, receivedMessageId)
     }
 
     private fun <T> getMessagesFromFolder(folderId: Long, mapper: MessageMapper<T?>): List<T> {

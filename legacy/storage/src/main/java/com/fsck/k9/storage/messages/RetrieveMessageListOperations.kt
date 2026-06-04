@@ -1,6 +1,7 @@
 package com.fsck.k9.storage.messages
 
 import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
 import app.k9mail.legacy.mailstore.MessageDetailsAccessor
 import app.k9mail.legacy.mailstore.MessageMapper
 import app.k9mail.legacy.message.extractors.PreviewResult
@@ -147,35 +148,40 @@ ORDER BY $orderBy
 
     fun <T> getThread(threadId: Long, sortOrder: String, mapper: MessageMapper<out T?>): List<T> {
         return lockableDatabase.execute(false) { database ->
+            val rootIds = collectConnectedThreadRoots(database, threadId)
+
+            val rootPlaceholders = rootIds.joinToString(separator = ",") { "?" }
+            val rootArgs = rootIds.map { it.toString() }.toTypedArray()
+
             database.rawQuery(
                 """
-SELECT 
-  messages.id AS id, 
-  uid, 
-  folder_id, 
-  sender_list, 
-  to_list, 
-  cc_list, 
-  date, 
-  internal_date, 
-  subject, 
+SELECT
+  messages.id AS id,
+  uid,
+  folder_id,
+  sender_list,
+  to_list,
+  cc_list,
+  date,
+  internal_date,
+  subject,
   preview_type,
-  preview, 
-  read, 
-  flagged, 
-  answered, 
-  forwarded, 
-  attachment_count, 
+  preview,
+  read,
+  flagged,
+  answered,
+  forwarded,
+  attachment_count,
   root
-FROM threads 
+FROM threads
 JOIN messages ON (messages.id = threads.message_id)
 LEFT JOIN FOLDERS ON (folders.id = messages.folder_id)
 WHERE
-  root = ?
-  AND empty = 0 AND deleted = 0
+  root IN ($rootPlaceholders)
+  AND messages.empty = 0 AND messages.deleted = 0
 ORDER BY $sortOrder
                 """,
-                arrayOf(threadId.toString()),
+                rootArgs,
             ).use { cursor ->
                 val cursorMessageAccessor = CursorMessageAccessor(cursor, includesThreadCount = false)
                 buildList {
@@ -185,6 +191,68 @@ ORDER BY $sortOrder
                             add(value)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    private fun collectConnectedThreadRoots(database: SQLiteDatabase, startRootId: Long): Set<Long> {
+        val roots = mutableSetOf(startRootId)
+        var frontier = setOf(startRootId)
+
+        while (frontier.isNotEmpty()) {
+            val messageIds = messageIdsForRoots(database, frontier)
+            if (messageIds.isEmpty()) break
+
+            val connectedRoots = rootsForMessageIds(database, messageIds)
+            frontier = connectedRoots - roots
+            roots += frontier
+        }
+
+        return roots
+    }
+
+    private fun messageIdsForRoots(database: SQLiteDatabase, rootIds: Set<Long>): Set<String> {
+        if (rootIds.isEmpty()) return emptySet()
+        val placeholders = rootIds.joinToString(separator = ",") { "?" }
+        val args = rootIds.map { it.toString() }.toTypedArray()
+
+        return database.rawQuery(
+            """
+SELECT DISTINCT messages.message_id
+FROM threads
+JOIN messages ON (messages.id = threads.message_id)
+WHERE threads.root IN ($placeholders)
+  AND messages.message_id IS NOT NULL
+            """,
+            args,
+        ).use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) {
+                    cursor.getString(0)?.let { add(it) }
+                }
+            }
+        }
+    }
+
+    private fun rootsForMessageIds(database: SQLiteDatabase, messageIds: Set<String>): Set<Long> {
+        if (messageIds.isEmpty()) return emptySet()
+        val placeholders = messageIds.joinToString(separator = ",") { "?" }
+        val args = messageIds.toTypedArray()
+
+        return database.rawQuery(
+            """
+SELECT DISTINCT threads.root
+FROM messages
+JOIN threads ON (threads.message_id = messages.id)
+WHERE messages.message_id IN ($placeholders)
+  AND threads.root IS NOT NULL
+            """,
+            args,
+        ).use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) {
+                    if (!cursor.isNull(0)) add(cursor.getLong(0))
                 }
             }
         }
