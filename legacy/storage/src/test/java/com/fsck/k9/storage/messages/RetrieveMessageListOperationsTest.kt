@@ -513,11 +513,55 @@ class RetrieveMessageListOperationsTest : RobolectricTest() {
         assertThat(result).containsExactlyInAnyOrder(sentMessageId, receivedMessageId)
     }
 
+    @Test
+    fun `getThread() deduplicates messages sharing the same message-id header`() {
+        val folderId = sqliteDatabase.createFolder()
+        val rootMessageId = sqliteDatabase.createMessage(
+            folderId,
+            uid = "uid1",
+            date = 100L,
+            messageIdHeader = "<A@domain.example>",
+        )
+        val rootThreadId = sqliteDatabase.createThread(rootMessageId)
+        val duplicateId1 = sqliteDatabase.createMessage(
+            folderId,
+            uid = "uid2",
+            date = 200L,
+            messageIdHeader = "<B@domain.example>",
+        )
+        sqliteDatabase.createThread(duplicateId1, root = rootThreadId, parent = rootThreadId)
+        val duplicateId2 = sqliteDatabase.createMessage(
+            folderId,
+            uid = "uid3",
+            date = 200L,
+            messageIdHeader = "<B@domain.example>",
+        )
+        sqliteDatabase.createThread(duplicateId2, root = rootThreadId, parent = rootThreadId)
+
+        val result = retrieveMessageListOperations.getThread(threadId = rootThreadId, sortOrder = "date ASC") { it.id }
+
+        assertThat(result).containsExactly(rootMessageId, duplicateId1)
+    }
+
+    @Test
+    fun `getThreadedMessages() reports merged thread count for cross-folder conversation`() {
+        val conversation = createCrossFolderConversation()
+
+        val result = getThreadedMessagesFromFolder(conversation.inboxFolderId) { message ->
+            assertThat(message.threadCount).isEqualTo(2)
+            "OK"
+        }
+
+        assertThat(result).containsExactly("OK")
+    }
+
     private data class CrossFolderConversation(
         val inboxThreadId: Long,
         val sentThreadRootId: Long,
         val sentMessageId: Long,
         val receivedMessageId: Long,
+        val inboxFolderId: Long,
+        val sentFolderId: Long,
     )
 
     private fun createCrossFolderConversation(): CrossFolderConversation {
@@ -546,7 +590,14 @@ class RetrieveMessageListOperationsTest : RobolectricTest() {
         )
         val inboxThreadId = sqliteDatabase.createThread(receivedMessageId)
 
-        return CrossFolderConversation(inboxThreadId, sentThreadRootId, sentMessageId, receivedMessageId)
+        return CrossFolderConversation(
+            inboxThreadId,
+            sentThreadRootId,
+            sentMessageId,
+            receivedMessageId,
+            inboxFolderId,
+            sentFolderId,
+        )
     }
 
     private fun <T> getMessagesFromFolder(folderId: Long, mapper: MessageMapper<T?>): List<T> {

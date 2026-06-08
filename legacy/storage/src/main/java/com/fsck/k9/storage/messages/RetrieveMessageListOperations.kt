@@ -75,16 +75,17 @@ ORDER BY $sortOrder
         )
 
         return lockableDatabase.execute(false) { database ->
+            val mergedThreadCounts = computeMergedThreadCounts(database, selection, selectionArgs)
             database.rawQuery(
                 """
-SELECT 
-  messages.id AS id, 
-  uid, 
-  folder_id, 
-  sender_list, 
-  to_list, 
-  cc_list, 
-  aggregated.date AS date, 
+SELECT
+  messages.id AS id,
+  uid,
+  folder_id,
+  sender_list,
+  to_list,
+  cc_list,
+  aggregated.date AS date,
   aggregated.internal_date AS internal_date, 
   subject, 
   preview_type,
@@ -133,7 +134,8 @@ ORDER BY $orderBy
                 """,
                 selectionArgs,
             ).use { cursor ->
-                val cursorMessageAccessor = CursorMessageAccessor(cursor, includesThreadCount = true)
+                val cursorMessageAccessor =
+                    CursorMessageAccessor(cursor, includesThreadCount = true, mergedThreadCounts = mergedThreadCounts)
                 buildList {
                     while (cursor.moveToNext()) {
                         val value = mapper.map(cursorMessageAccessor)
@@ -179,9 +181,20 @@ LEFT JOIN FOLDERS ON (folders.id = messages.folder_id)
 WHERE
   root IN ($rootPlaceholders)
   AND messages.empty = 0 AND messages.deleted = 0
+  AND (
+    messages.message_id IS NULL
+    OR messages.id = (
+      SELECT MIN(m2.id)
+      FROM threads t2
+      JOIN messages m2 ON (m2.id = t2.message_id)
+      WHERE t2.root IN ($rootPlaceholders)
+        AND m2.empty = 0 AND m2.deleted = 0
+        AND m2.message_id = messages.message_id
+    )
+  )
 ORDER BY $sortOrder
                 """,
-                rootArgs,
+                rootArgs + rootArgs,
             ).use { cursor ->
                 val cursorMessageAccessor = CursorMessageAccessor(cursor, includesThreadCount = false)
                 buildList {
@@ -257,9 +270,87 @@ WHERE messages.message_id IN ($placeholders)
             }
         }
     }
+
+    private fun computeMergedThreadCounts(
+        database: SQLiteDatabase,
+        selection: String,
+        selectionArgs: Array<String>,
+    ): Map<Long, Int> {
+        val displayedRoots = rootsForSelection(database, selection, selectionArgs)
+        if (displayedRoots.isEmpty()) return emptyMap()
+
+        val counts = HashMap<Long, Int>()
+        val processed = HashSet<Long>()
+        for (root in displayedRoots) {
+            if (root in processed) continue
+            val connectedRoots = collectConnectedThreadRoots(database, root)
+            val count = countRealMessagesInRoots(database, connectedRoots)
+            for (connectedRoot in connectedRoots) {
+                if (connectedRoot in displayedRoots) counts[connectedRoot] = count
+            }
+            processed += connectedRoots
+        }
+        return counts
+    }
+
+    private fun rootsForSelection(
+        database: SQLiteDatabase,
+        selection: String,
+        selectionArgs: Array<String>,
+    ): Set<Long> {
+        return database.rawQuery(
+            """
+SELECT DISTINCT threads.root
+FROM messages
+JOIN threads ON (threads.message_id = messages.id)
+JOIN folders ON (folders.id = messages.folder_id)
+WHERE ($selection)
+  AND messages.empty = 0 AND messages.deleted = 0
+  AND threads.root IS NOT NULL
+            """,
+            selectionArgs,
+        ).use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) {
+                    if (!cursor.isNull(0)) add(cursor.getLong(0))
+                }
+            }
+        }
+    }
+
+    private fun countRealMessagesInRoots(database: SQLiteDatabase, rootIds: Set<Long>): Int {
+        if (rootIds.isEmpty()) return 0
+        val placeholders = rootIds.joinToString(separator = ",") { "?" }
+        val args = rootIds.map { it.toString() }.toTypedArray()
+
+        return database.rawQuery(
+            """
+SELECT
+  (SELECT COUNT(DISTINCT messages.message_id)
+   FROM threads
+   JOIN messages ON (messages.id = threads.message_id)
+   WHERE threads.root IN ($placeholders)
+     AND messages.empty = 0 AND messages.deleted = 0
+     AND messages.message_id IS NOT NULL)
+  + (SELECT COUNT(*)
+     FROM threads
+     JOIN messages ON (messages.id = threads.message_id)
+     WHERE threads.root IN ($placeholders)
+       AND messages.empty = 0 AND messages.deleted = 0
+       AND messages.message_id IS NULL)
+            """,
+            args + args,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
 }
 
-private class CursorMessageAccessor(val cursor: Cursor, val includesThreadCount: Boolean) : MessageDetailsAccessor {
+private class CursorMessageAccessor(
+    val cursor: Cursor,
+    val includesThreadCount: Boolean,
+    val mergedThreadCounts: Map<Long, Int>? = null,
+) : MessageDetailsAccessor {
     override val id: Long
         get() = cursor.getLong(0)
     override val messageServerId: String
@@ -300,7 +391,7 @@ private class CursorMessageAccessor(val cursor: Cursor, val includesThreadCount:
     override val threadRoot: Long
         get() = cursor.getLong(16)
     override val threadCount: Int
-        get() = if (includesThreadCount) cursor.getInt(17) else 0
+        get() = if (includesThreadCount) mergedThreadCounts?.get(threadRoot) ?: cursor.getInt(17) else 0
 }
 
 private val AGGREGATED_MESSAGES_COLUMNS = arrayOf(
