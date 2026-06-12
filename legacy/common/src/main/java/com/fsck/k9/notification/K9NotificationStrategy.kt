@@ -60,6 +60,12 @@ class K9NotificationStrategy(
             return false
         }
 
+        val messageIdHeader = message.messageId
+        if (messageIdHeader != null && ReadMessageIdTracker.wasRead(messageIdHeader)) {
+            Log.v("No notification: Message is a server-side copy of a message that was already read")
+            return false
+        }
+
         if (account.isIgnoreChatMessages && message.isChatMessage) {
             Log.v("No notification: Notifications for chat messages are disabled")
             return false

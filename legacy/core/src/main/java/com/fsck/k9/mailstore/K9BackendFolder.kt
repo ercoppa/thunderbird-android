@@ -5,8 +5,10 @@ import com.fsck.k9.backend.api.BackendFolder
 import com.fsck.k9.backend.api.BackendFolder.MoreMessages
 import com.fsck.k9.mail.Message
 import com.fsck.k9.mail.MessageDownloadState
+import com.fsck.k9.notification.ReadMessageIdTracker
 import java.util.Date
 import net.thunderbird.core.common.mail.Flag
+import net.thunderbird.core.logging.legacy.Log
 import app.k9mail.legacy.mailstore.MoreMessages as StoreMoreMessages
 
 class K9BackendFolder(
@@ -45,7 +47,24 @@ class K9BackendFolder(
     }
 
     override fun destroyMessages(messageServerIds: List<String>) {
+        rememberReadMessageIds(messageServerIds)
         messageStore.destroyMessages(folderId, messageServerIds)
+    }
+
+    // Messages destroyed during sync may be re-delivered by the server with a new UID (e.g. after an
+    // attachment scan). Remember the Message-IDs of read messages so the copy doesn't trigger a notification.
+    private fun rememberReadMessageIds(messageServerIds: List<String>) {
+        for (messageServerId in messageServerIds) {
+            try {
+                if (Flag.SEEN !in messageStore.getMessageFlags(folderId, messageServerId)) continue
+
+                messageStore.getHeaders(folderId, messageServerId, setOf("Message-ID"))
+                    .firstOrNull()
+                    ?.let { header -> ReadMessageIdTracker.rememberReadMessage(header.value) }
+            } catch (e: MessageNotFoundException) {
+                Log.v(e, "Couldn't read Message-ID of message %s before destroying it", messageServerId)
+            }
+        }
     }
 
     override fun clearAllMessages() {
