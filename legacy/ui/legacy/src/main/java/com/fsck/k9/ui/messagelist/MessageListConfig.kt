@@ -12,6 +12,8 @@ data class MessageListConfig(
     val sortDateAscending: Boolean,
     val activeMessage: MessageReference?,
     val sortOverrides: Map<MessageReference, MessageSortOverride>,
+    val filterUnread: Boolean = false,
+    val filterStarred: Boolean = false,
 )
 
 data class MessageSortOverride(

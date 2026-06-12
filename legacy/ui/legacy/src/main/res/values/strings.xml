@@ -643,6 +643,9 @@
     <string name="sort_unattached_first">Messages without attachments first</string>
 
     <string name="sort_by">Sort by…</string>
+    <string name="sort_and_filter">Sort &amp; filter…</string>
+    <string name="filter_unread_only">Show unread only</string>
+    <string name="filter_starred_only">Show starred only</string>
     <string name="sort_by_then_by">Then by…</string>
     <string name="sort_by_date">Date</string>
     <string name="sort_by_arrival">Arrival</string>

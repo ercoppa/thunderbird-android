@@ -695,6 +695,8 @@ class LegacyMessageListFragment :
             sortDateAscending,
             activeMessage,
             legacyViewModel.messageSortOverrides.toMap(),
+            filterUnread = K9.isMessageListFilterUnread,
+            filterStarred = K9.isMessageListFilterStarred,
         )
 
         if (forceUpdate) {
@@ -990,6 +992,18 @@ class LegacyMessageListFragment :
         loadMessageList()
     }
 
+    private fun toggleUnreadFilter() {
+        K9.isMessageListFilterUnread = !K9.isMessageListFilterUnread
+        K9.saveSettingsAsync()
+        loadMessageList(forceUpdate = true)
+    }
+
+    private fun toggleStarredFilter() {
+        K9.isMessageListFilterStarred = !K9.isMessageListFilterStarred
+        K9.saveSettingsAsync()
+        loadMessageList(forceUpdate = true)
+    }
+
     override fun onCycleSort() {
         val sortTypes = SortType.entries
         val currentIndex = sortTypes.indexOf(sortType)
@@ -1167,6 +1181,8 @@ class LegacyMessageListFragment :
 
     private fun prepareSortMenu(menu: Menu) {
         menu.findItem(R.id.set_sort).isVisible = true
+        menu.findItem(R.id.set_filter_unread).isChecked = K9.isMessageListFilterUnread
+        menu.findItem(R.id.set_filter_starred).isChecked = K9.isMessageListFilterStarred
     }
 
     private fun prepareDebugMenu(menu: Menu) {
@@ -1198,6 +1214,8 @@ class LegacyMessageListFragment :
             R.id.set_sort_flag -> changeSort(SortType.SORT_FLAGGED)
             R.id.set_sort_unread -> changeSort(SortType.SORT_UNREAD)
             R.id.set_sort_attach -> changeSort(SortType.SORT_ATTACHMENT)
+            R.id.set_filter_unread -> toggleUnreadFilter()
+            R.id.set_filter_starred -> toggleStarredFilter()
             R.id.select_all -> selectAll()
             R.id.mark_all_as_read -> confirmMarkAllAsRead()
             R.id.send_messages -> onSendPendingMessages()

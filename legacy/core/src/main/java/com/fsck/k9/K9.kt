@@ -119,6 +119,16 @@ object K9 : KoinComponent {
     var sortType: SortType = AccountDefaultsProvider.DEFAULT_SORT_TYPE
     private val sortAscending = mutableMapOf<SortType, Boolean>()
 
+    @get:Synchronized
+    @set:Synchronized
+    @JvmStatic
+    var isMessageListFilterUnread: Boolean = false
+
+    @get:Synchronized
+    @set:Synchronized
+    @JvmStatic
+    var isMessageListFilterStarred: Boolean = false
+
     @JvmStatic
     var pgpInlineDialogCounter: Int = 0
 
@@ -174,6 +184,9 @@ object K9 : KoinComponent {
         val sortAscendingSetting = storage.getBoolean("sortAscending", AccountDefaultsProvider.DEFAULT_SORT_ASCENDING)
         sortAscending[sortType] = sortAscendingSetting
 
+        isMessageListFilterUnread = storage.getBoolean("messageListFilterUnread", false)
+        isMessageListFilterStarred = storage.getBoolean("messageListFilterStarred", false)
+
         featureFlagProvider.provide("disable_font_size_config".toFeatureFlagKey())
             .onDisabledOrUnavailable {
                 fontSizes.load(storage)
@@ -195,6 +208,9 @@ object K9 : KoinComponent {
     internal fun save(editor: StorageEditor) {
         editor.putEnum("sortTypeEnum", sortType)
         editor.putBoolean("sortAscending", sortAscending[sortType] ?: false)
+
+        editor.putBoolean("messageListFilterUnread", isMessageListFilterUnread)
+        editor.putBoolean("messageListFilterStarred", isMessageListFilterStarred)
 
         editor.putInt("pgpInlineDialogCounter", pgpInlineDialogCounter)
         editor.putInt("pgpSignOnlyDialogCounter", pgpSignOnlyDialogCounter)

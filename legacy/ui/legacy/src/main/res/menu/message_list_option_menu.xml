@@ -23,7 +23,7 @@
     <item
         android:id="@+id/set_sort"
         android:icon="@drawable/ic_sort"
-        android:title="@string/sort_by"
+        android:title="@string/sort_and_filter"
         app:showAsAction="ifRoom"
         >
         <menu>
@@ -55,6 +55,18 @@
                 android:id="@+id/set_sort_attach"
                 android:title="@string/sort_by_attach"
                 />
+            <group android:id="@+id/filter_group">
+                <item
+                    android:id="@+id/set_filter_unread"
+                    android:title="@string/filter_unread_only"
+                    android:checkable="true"
+                    />
+                <item
+                    android:id="@+id/set_filter_starred"
+                    android:title="@string/filter_starred_only"
+                    android:checkable="true"
+                    />
+            </group>
         </menu>
     </item>
 

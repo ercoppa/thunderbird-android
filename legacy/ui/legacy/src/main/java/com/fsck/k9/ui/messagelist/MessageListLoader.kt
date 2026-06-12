@@ -113,6 +113,19 @@ class MessageListLoader(
         query.append(whereClause.selection)
         queryArgs.addAll(whereClause.selectionArgs)
 
+        val filterConditions = buildList {
+            if (config.filterUnread) add("${MessageColumns.READ} = 0")
+            if (config.filterStarred) add("${MessageColumns.FLAGGED} = 1")
+        }
+        var hasConditions = whereClause.selection.isNotBlank()
+        for (filterCondition in filterConditions) {
+            if (hasConditions) {
+                query.append(" AND ")
+            }
+            query.append(filterCondition)
+            hasConditions = true
+        }
+
         if (selectActive) {
             query.append(')')
         }
