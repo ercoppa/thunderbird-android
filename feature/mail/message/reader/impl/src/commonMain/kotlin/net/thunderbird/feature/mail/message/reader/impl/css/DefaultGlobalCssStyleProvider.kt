@@ -33,6 +33,13 @@ internal class DefaultGlobalCssStyleProvider private constructor(
         |  .${cssClassNameProvider.rootClassName}.${cssClassNameProvider.mainContentClassName} pre {
         |    white-space: pre-wrap;
         |  }
+        |  .${cssClassNameProvider.rootClassName}.${cssClassNameProvider.mainContentClassName} table {
+        |    max-width: 100% !important;
+        |  }
+        |  .${cssClassNameProvider.rootClassName}.${cssClassNameProvider.mainContentClassName} img {
+        |    max-width: 100% !important;
+        |    height: auto !important;
+        |  }
         |  .${cssClassNameProvider.rootClassName}.${cssClassNameProvider.mainContentClassName} blockquote {
         |    margin: auto 0 auto 0.8ex !important;
         |    padding-left: 1ex !important;
