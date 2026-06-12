@@ -172,8 +172,7 @@ class PushController internal constructor(
 
         val shouldDisablePushAccounts = backgroundSyncDisabledViaSystem ||
             backgroundSyncDisabledInApp ||
-            networkNotAvailable ||
-            alarmPermissionMissing
+            networkNotAvailable
 
         val pushAccounts = if (shouldDisablePushAccounts) {
             emptyList()
@@ -228,13 +227,13 @@ class PushController internal constructor(
                 startServices()
             }
 
-            alarmPermissionMissing -> {
-                setPushNotificationState(ALARM_PERMISSION_MISSING)
+            arePushersActive -> {
+                setPushNotificationState(LISTENING)
                 startServices()
             }
 
-            arePushersActive -> {
-                setPushNotificationState(LISTENING)
+            alarmPermissionMissing -> {
+                setPushNotificationState(ALARM_PERMISSION_MISSING)
                 startServices()
             }
 
