@@ -3,8 +3,10 @@ package com.fsck.k9.ui.messagelist
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
+import android.database.MatrixCursor
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.BaseColumns
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuInflater
@@ -22,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ComposeView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.cursoradapter.widget.SimpleCursorAdapter
 import androidx.core.os.bundleOf
 import androidx.core.view.MenuHost
 import androidx.core.view.MenuProvider
@@ -44,6 +47,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import app.k9mail.core.android.common.contact.ContactRepository
 import app.k9mail.feature.launcher.FeatureLauncherActivity
 import app.k9mail.feature.launcher.FeatureLauncherTarget
+import app.k9mail.legacy.mailstore.MessageListRepository
 import app.k9mail.legacy.message.controller.MessageReference
 import app.k9mail.legacy.message.controller.MessagingControllerRegistry
 import app.k9mail.legacy.message.controller.SimpleMessagingListener
@@ -84,6 +88,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.jcip.annotations.GuardedBy
 import net.thunderbird.core.android.account.Expunge
 import net.thunderbird.core.android.account.LegacyAccount
@@ -165,6 +170,9 @@ class LegacyMessageListFragment :
     private val messagingController: MessagingControllerWrapper by inject()
     private val messagingControllerRegistry: MessagingControllerRegistry by inject()
     private val accountManager: LegacyAccountManager by inject()
+    private val messageListRepository: MessageListRepository by inject()
+    private val contactSuggestionProvider by lazy { ContactSuggestionProvider(messageListRepository) }
+    private var contactSuggestions: List<ContactSuggestion> = emptyList()
     private val connectivityManager: ConnectivityManager by inject()
     private val localStoreProvider: LocalStoreProvider by inject()
 
@@ -1139,6 +1147,27 @@ class LegacyMessageListFragment :
         val searchView = searchItem.actionView as SearchView
         searchView.maxWidth = Int.MAX_VALUE
         searchView.queryHint = resources.getString(R.string.search_action)
+        searchView.suggestionsAdapter = SimpleCursorAdapter(
+            requireContext(),
+            android.R.layout.simple_list_item_2,
+            null,
+            arrayOf(ContactSuggestionProvider.COLUMN_NAME, ContactSuggestionProvider.COLUMN_EMAIL),
+            intArrayOf(android.R.id.text1, android.R.id.text2),
+            0,
+        )
+        searchView.setOnSuggestionListener(
+            object : SearchView.OnSuggestionListener {
+                override fun onSuggestionSelect(position: Int): Boolean = false
+
+                override fun onSuggestionClick(position: Int): Boolean {
+                    contactSuggestions.getOrNull(position)?.let { suggestion ->
+                        onSearchRequested(suggestion.email)
+                        collapseSearchView()
+                    }
+                    return true
+                }
+            },
+        )
         searchView.setOnQueryTextListener(
             object : SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String): Boolean {
@@ -1148,7 +1177,8 @@ class LegacyMessageListFragment :
                 }
 
                 override fun onQueryTextChange(s: String): Boolean {
-                    return false
+                    updateContactSuggestions(s)
+                    return true
                 }
             },
         )
@@ -1157,6 +1187,35 @@ class LegacyMessageListFragment :
         searchView.isIconified = initialSearchViewIconified
 
         this.searchView = searchView
+    }
+
+    private fun updateContactSuggestions(query: String) {
+        if (query.trim().length < ContactSuggestionProvider.MIN_QUERY_LENGTH) {
+            contactSuggestions = emptyList()
+            searchView?.suggestionsAdapter?.changeCursor(null)
+            return
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val suggestions = withContext(Dispatchers.IO) {
+                val accountUuids = localSearch.getLegacyAccounts(accountManager).map { it.uuid }
+                contactSuggestionProvider.getSuggestions(query, accountUuids)
+            }
+
+            contactSuggestions = suggestions
+
+            val cursor = MatrixCursor(
+                arrayOf(
+                    BaseColumns._ID,
+                    ContactSuggestionProvider.COLUMN_NAME,
+                    ContactSuggestionProvider.COLUMN_EMAIL,
+                ),
+            )
+            suggestions.forEachIndexed { index, suggestion ->
+                cursor.addRow(arrayOf<Any>(index, suggestion.name, suggestion.email))
+            }
+            searchView?.suggestionsAdapter?.changeCursor(cursor)
+        }
     }
 
     private fun prepareMenu(menu: Menu) {
