@@ -151,12 +151,64 @@ ORDER BY $orderBy
     fun <T> getThread(threadId: Long, sortOrder: String, mapper: MessageMapper<out T?>): List<T> {
         return lockableDatabase.execute(false) { database ->
             val rootIds = collectConnectedThreadRoots(database, threadId)
+            val messageRowIds = if (rootIds.isEmpty()) emptySet() else selectThreadMessageRowIds(database, rootIds)
+            queryMessagesByRowIds(database, messageRowIds, sortOrder, mapper)
+        }
+    }
 
-            val rootPlaceholders = rootIds.joinToString(separator = ",") { "?" }
-            val rootArgs = rootIds.map { it.toString() }.toTypedArray()
+    /**
+     * Selects which message rows to display for a conversation: one representative (lowest id) per Message-ID plus
+     * every message that has no Message-ID. This is done in memory to avoid a correlated subquery that scales as
+     * O(n^2), and the root lookup is chunked to stay within SQLite's bind-variable limit.
+     */
+    private fun selectThreadMessageRowIds(database: SQLiteDatabase, rootIds: Set<Long>): Set<Long> {
+        val minRowIdByMessageId = HashMap<String, Long>()
+        val rowIdsWithoutMessageId = mutableListOf<Long>()
 
+        forEachSqlChunk(rootIds.map { it.toString() }) { placeholders, args ->
             database.rawQuery(
                 """
+SELECT messages.id, messages.message_id
+FROM threads
+JOIN messages ON (messages.id = threads.message_id)
+WHERE threads.root IN ($placeholders)
+  AND messages.empty = 0 AND messages.deleted = 0
+                """,
+                args,
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val rowId = cursor.getLong(0)
+                    val messageId = cursor.getString(1)
+                    if (messageId.isNullOrEmpty()) {
+                        rowIdsWithoutMessageId += rowId
+                    } else {
+                        val existing = minRowIdByMessageId[messageId]
+                        if (existing == null || rowId < existing) {
+                            minRowIdByMessageId[messageId] = rowId
+                        }
+                    }
+                }
+            }
+        }
+
+        return buildSet {
+            addAll(rowIdsWithoutMessageId)
+            addAll(minRowIdByMessageId.values)
+        }
+    }
+
+    private fun <T> queryMessagesByRowIds(
+        database: SQLiteDatabase,
+        rowIds: Set<Long>,
+        sortOrder: String,
+        mapper: MessageMapper<out T?>,
+    ): List<T> {
+        if (rowIds.isEmpty()) return emptyList()
+
+        return buildList {
+            forEachSqlChunk(rowIds.map { it.toString() }) { placeholders, args ->
+                database.rawQuery(
+                    """
 SELECT
   messages.id AS id,
   uid,
@@ -175,29 +227,15 @@ SELECT
   forwarded,
   attachment_count,
   root
-FROM threads
-JOIN messages ON (messages.id = threads.message_id)
-LEFT JOIN FOLDERS ON (folders.id = messages.folder_id)
-WHERE
-  root IN ($rootPlaceholders)
-  AND messages.empty = 0 AND messages.deleted = 0
-  AND (
-    messages.message_id IS NULL
-    OR messages.id = (
-      SELECT MIN(m2.id)
-      FROM threads t2
-      JOIN messages m2 ON (m2.id = t2.message_id)
-      WHERE t2.root IN ($rootPlaceholders)
-        AND m2.empty = 0 AND m2.deleted = 0
-        AND m2.message_id = messages.message_id
-    )
-  )
+FROM messages
+LEFT JOIN threads ON (threads.message_id = messages.id)
+LEFT JOIN folders ON (folders.id = messages.folder_id)
+WHERE messages.id IN ($placeholders)
 ORDER BY $sortOrder
-                """,
-                rootArgs + rootArgs,
-            ).use { cursor ->
-                val cursorMessageAccessor = CursorMessageAccessor(cursor, includesThreadCount = false)
-                buildList {
+                    """,
+                    args,
+                ).use { cursor ->
+                    val cursorMessageAccessor = CursorMessageAccessor(cursor, includesThreadCount = false)
                     while (cursor.moveToNext()) {
                         val value = mapper.map(cursorMessageAccessor)
                         if (value != null) {
@@ -209,11 +247,19 @@ ORDER BY $sortOrder
         }
     }
 
+    /**
+     * Returns the set of thread roots that belong to the same conversation as [startRootId], following links formed
+     * by shared Message-IDs across folders (e.g. an Inbox reply and its Sent original).
+     *
+     * The walk is bounded: messages without a Message-ID (or with an empty one) are ignored as links, and the total
+     * number of roots is capped. Without this, a single empty/shared Message-ID can connect unrelated threads and
+     * make the walk cover the entire mailbox.
+     */
     private fun collectConnectedThreadRoots(database: SQLiteDatabase, startRootId: Long): Set<Long> {
         val roots = mutableSetOf(startRootId)
         var frontier = setOf(startRootId)
 
-        while (frontier.isNotEmpty()) {
+        while (frontier.isNotEmpty() && roots.size <= MAX_CONNECTED_THREAD_ROOTS) {
             val messageIds = messageIdsForRoots(database, frontier)
             if (messageIds.isEmpty()) break
 
@@ -226,49 +272,46 @@ ORDER BY $sortOrder
     }
 
     private fun messageIdsForRoots(database: SQLiteDatabase, rootIds: Set<Long>): Set<String> {
-        if (rootIds.isEmpty()) return emptySet()
-        val placeholders = rootIds.joinToString(separator = ",") { "?" }
-        val args = rootIds.map { it.toString() }.toTypedArray()
-
-        return database.rawQuery(
-            """
+        val messageIds = mutableSetOf<String>()
+        forEachSqlChunk(rootIds.map { it.toString() }) { placeholders, args ->
+            database.rawQuery(
+                """
 SELECT DISTINCT messages.message_id
 FROM threads
 JOIN messages ON (messages.id = threads.message_id)
 WHERE threads.root IN ($placeholders)
   AND messages.message_id IS NOT NULL
-            """,
-            args,
-        ).use { cursor ->
-            buildSet {
+  AND messages.message_id != ''
+                """,
+                args,
+            ).use { cursor ->
                 while (cursor.moveToNext()) {
-                    cursor.getString(0)?.let { add(it) }
+                    cursor.getString(0)?.let { messageIds += it }
                 }
             }
         }
+        return messageIds
     }
 
     private fun rootsForMessageIds(database: SQLiteDatabase, messageIds: Set<String>): Set<Long> {
-        if (messageIds.isEmpty()) return emptySet()
-        val placeholders = messageIds.joinToString(separator = ",") { "?" }
-        val args = messageIds.toTypedArray()
-
-        return database.rawQuery(
-            """
+        val roots = mutableSetOf<Long>()
+        forEachSqlChunk(messageIds.toList()) { placeholders, args ->
+            database.rawQuery(
+                """
 SELECT DISTINCT threads.root
 FROM messages
 JOIN threads ON (threads.message_id = messages.id)
 WHERE messages.message_id IN ($placeholders)
   AND threads.root IS NOT NULL
-            """,
-            args,
-        ).use { cursor ->
-            buildSet {
+                """,
+                args,
+            ).use { cursor ->
                 while (cursor.moveToNext()) {
-                    if (!cursor.isNull(0)) add(cursor.getLong(0))
+                    if (!cursor.isNull(0)) roots += cursor.getLong(0)
                 }
             }
         }
+        return roots
     }
 
     @Suppress("LongMethod")
@@ -309,7 +352,7 @@ WHERE messages.message_id IN ($placeholders)
 SELECT threads.root, messages.message_id
 FROM threads
 JOIN messages ON (messages.id = threads.message_id)
-WHERE threads.root IS NOT NULL AND messages.message_id IS NOT NULL
+WHERE threads.root IS NOT NULL AND messages.message_id IS NOT NULL AND messages.message_id != ''
             """,
             null,
         ).use { cursor ->
@@ -333,7 +376,7 @@ FROM threads
 JOIN messages ON (messages.id = threads.message_id)
 WHERE threads.root IS NOT NULL
   AND messages.empty = 0 AND messages.deleted = 0
-  AND messages.message_id IS NOT NULL
+  AND messages.message_id IS NOT NULL AND messages.message_id != ''
             """,
             null,
         ).use { cursor ->
@@ -352,7 +395,7 @@ FROM threads
 JOIN messages ON (messages.id = threads.message_id)
 WHERE threads.root IS NOT NULL
   AND messages.empty = 0 AND messages.deleted = 0
-  AND messages.message_id IS NULL
+  AND (messages.message_id IS NULL OR messages.message_id = '')
 GROUP BY threads.root
             """,
             null,
@@ -457,3 +500,22 @@ private val AGGREGATED_MESSAGES_COLUMNS = arrayOf(
     "answered",
     "forwarded",
 )
+
+// SQLite limits the number of bound parameters per statement (historically 999). Keep IN() lists below that.
+private const val MAX_SQL_VARIABLES = 900
+
+// Safety bound on how many thread roots a single conversation may span, to keep the cross-folder walk cheap even if
+// the data links many threads together.
+private const val MAX_CONNECTED_THREAD_ROOTS = 500
+
+/**
+ * Runs [action] once per chunk of [keys] small enough to be used as bound parameters in a SQL `IN (...)` clause,
+ * passing the comma-separated placeholder string and the matching argument array.
+ */
+private inline fun forEachSqlChunk(keys: List<String>, action: (placeholders: String, args: Array<String>) -> Unit) {
+    if (keys.isEmpty()) return
+    for (chunk in keys.chunked(MAX_SQL_VARIABLES)) {
+        val placeholders = chunk.joinToString(separator = ",") { "?" }
+        action(placeholders, chunk.toTypedArray())
+    }
+}
