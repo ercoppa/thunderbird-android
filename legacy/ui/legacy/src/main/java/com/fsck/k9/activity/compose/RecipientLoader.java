@@ -24,6 +24,7 @@ import androidx.loader.content.AsyncTaskLoader;
 import androidx.core.content.ContextCompat;
 
 import app.k9mail.core.android.common.database.EmptyCursor;
+import app.k9mail.legacy.di.DI;
 import com.fsck.k9.ui.R;
 import com.fsck.k9.mail.Address;
 import com.fsck.k9.view.RecipientSelectView.Recipient;
@@ -340,11 +341,38 @@ public class RecipientLoader extends AsyncTaskLoader<List<Recipient>> {
         foundValidCursor |= fillContactDataFromNickname(query, recipients, recipientMap);
         foundValidCursor |= fillContactDataFromNameAndEmail(query, recipients, recipientMap, null);
 
-        if (foundValidCursor) {
+        // Also suggest addresses from past messages, not just the phone's address book.
+        fillContactDataFromMessageDatabase(query, recipients, recipientMap);
+
+        if (!recipients.isEmpty()) {
             Collections.sort(recipients, RECIPIENT_COMPARATOR);
+        }
+        if (foundValidCursor) {
             registerContentObserver();
         }
+    }
 
+    private void fillContactDataFromMessageDatabase(String query, List<Recipient> recipients,
+            Map<String, Recipient> recipientMap) {
+        try {
+            MessageDatabaseRecipientProvider provider = DI.get(MessageDatabaseRecipientProvider.class);
+            for (DatabaseRecipient dbRecipient : provider.getRecipients(query)) {
+                String email = dbRecipient.getEmail();
+                if (email == null || !isSupportedEmailAddress(email) || recipientMap.containsKey(email)) {
+                    continue;
+                }
+
+                String name = dbRecipient.getName();
+                Address address = (name != null && !name.isEmpty()) ? new Address(email, name) : new Address(email);
+                Recipient recipient = new Recipient(address);
+                if (recipient.isValidEmailAddress()) {
+                    recipientMap.put(email, recipient);
+                    recipients.add(recipient);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(e, "Error loading recipient suggestions from message database");
+        }
     }
 
     private void registerContentObserver() {
