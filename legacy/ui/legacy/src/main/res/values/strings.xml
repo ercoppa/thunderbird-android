@@ -868,6 +868,8 @@
 
     <string name="global_settings_threaded_view_label">Threaded view</string>
     <string name="global_settings_threaded_view_summary">Group messages by conversation</string>
+    <string name="global_settings_conversation_view_label">Conversation view</string>
+    <string name="global_settings_conversation_view_summary">Open a thread as a scrollable stack of messages instead of a message list</string>
 
     <string name="upgrade_databases_title">Upgrading databases</string>
     <string name="upgrade_databases_unspecified">Upgrading databases…</string>

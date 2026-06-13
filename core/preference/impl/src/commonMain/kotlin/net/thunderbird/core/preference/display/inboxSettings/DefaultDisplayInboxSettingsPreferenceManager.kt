@@ -60,6 +60,10 @@ class DefaultDisplayInboxSettingsPreferenceManager(
             DisplayInboxSettingKey.ThreadViewEnabled.value,
             DISPLAY_SETTINGS_DEFAULT_IS_THREAD_VIEW_ENABLED,
         ),
+        isConversationViewEnabled = storage.getBoolean(
+            DisplayInboxSettingKey.ConversationViewEnabled.value,
+            DISPLAY_SETTINGS_DEFAULT_IS_CONVERSATION_VIEW_ENABLED,
+        ),
         isShowStarredCount = storage.getBoolean(
             DisplayInboxSettingKey.ShowStarCount.value,
             DISPLAY_SETTINGS_DEFAULT_IS_SHOW_STAR_COUNT,
@@ -93,6 +97,10 @@ class DefaultDisplayInboxSettingsPreferenceManager(
                 storageEditor.putBoolean(
                     DisplayInboxSettingKey.ThreadViewEnabled.value,
                     config.isThreadedViewEnabled,
+                )
+                storageEditor.putBoolean(
+                    DisplayInboxSettingKey.ConversationViewEnabled.value,
+                    config.isConversationViewEnabled,
                 )
                 storageEditor.putBoolean(DisplayInboxSettingKey.ShowUnifiedInbox.value, config.isShowUnifiedInbox)
                 storageEditor.putBoolean(DisplayInboxSettingKey.ShowStarCount.value, config.isShowStarredCount)

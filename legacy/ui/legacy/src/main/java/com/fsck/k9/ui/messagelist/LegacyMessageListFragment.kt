@@ -825,7 +825,17 @@ class LegacyMessageListFragment :
             toggleMessageSelect(messageListItem)
         } else {
             lastMessageClick = clickTime
-            if (showingThreadedList && messageListItem.threadCount > 1) {
+            val conversationViewEnabled =
+                generalSettingsManager.getConfig().display.inboxSettings.isConversationViewEnabled
+            if (showingThreadedList && conversationViewEnabled) {
+                // Open the conversation directly (Gmail-style). Single-message conversations show one expanded card.
+                fragmentListener.openConversation(
+                    messageListItem.messageReference,
+                    messageListItem.account,
+                    messageListItem.threadRoot,
+                )
+            } else if (showingThreadedList && messageListItem.threadCount > 1) {
+                // Conversation view disabled: fall back to the flat thread list.
                 fragmentListener.showThread(messageListItem.account, messageListItem.threadRoot)
             } else {
                 openMessage(messageListItem.messageReference)

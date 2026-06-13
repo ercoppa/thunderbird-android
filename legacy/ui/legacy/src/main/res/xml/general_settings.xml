@@ -326,6 +326,12 @@
                 />
 
             <CheckBoxPreference
+                android:key="conversation_view"
+                android:summary="@string/global_settings_conversation_view_summary"
+                android:title="@string/global_settings_conversation_view_label"
+                />
+
+            <CheckBoxPreference
                 android:key="show_compose_button"
                 android:title="@string/general_settings_show_compose_button_title"
                 />

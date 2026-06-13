@@ -10,6 +10,7 @@ enum class DisplayInboxSettingKey(val value: String) {
     ShowStarCount("showStarredCount"),
     ShowUnifiedInbox("showUnifiedInbox"),
     ThreadViewEnabled("isThreadedViewEnabled"),
+    ConversationViewEnabled("isConversationViewEnabled"),
 }
 
 interface DisplayInboxSettingsPreferenceManager : PreferenceManager<DisplayInboxSettings>

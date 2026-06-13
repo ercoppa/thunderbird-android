@@ -17,7 +17,10 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.inputmethod.InputMethodManager
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.runtime.collectAsState
@@ -143,6 +146,18 @@ class MessageViewFragment :
     lateinit var messageReference: MessageReference
     private var showAccountIndicator: Boolean = true
 
+    /**
+     * When `true`, this fragment is hosted inside a conversation card stack. It then wraps its content height and
+     * lets the enclosing scroll container do the scrolling, instead of scrolling internally.
+     */
+    private var isEmbedded: Boolean = false
+
+    /**
+     * When embedded in the conversation view, tapping the message header collapses the message. Set by the host
+     * [ConversationViewFragment].
+     */
+    var embeddedCollapseListener: (() -> Unit)? = null
+
     private var currentAttachmentViewInfo: AttachmentViewInfo? = null
     private var isDeleteMenuItemDisabled: Boolean = false
     private var wasMessageMarkedAsOpened: Boolean = false
@@ -182,6 +197,8 @@ class MessageViewFragment :
         showAccountIndicator = arguments?.getBoolean(ARG_SHOW_ACCOUNT_INDICATOR)
             ?: error("Missing argument: '$ARG_SHOW_ACCOUNT_INDICATOR'")
 
+        isEmbedded = arguments?.getBoolean(ARG_EMBEDDED) ?: false
+
         if (savedInstanceState != null) {
             wasMessageMarkedAsOpened = savedInstanceState.getBoolean(STATE_WAS_MESSAGE_MARKED_AS_OPENED)
             isActive = savedInstanceState.getBoolean(STATE_IS_ACTIVE)
@@ -208,7 +225,49 @@ class MessageViewFragment :
 
         initializeMessageTopView(messageTopView)
 
+        if (isEmbedded) {
+            applyEmbeddedLayout(view)
+        }
+
         return view
+    }
+
+    /**
+     * Reconfigures the message view to size itself to its content so it can be stacked vertically inside the
+     * conversation view's scroll container. Without this the root and the message scroll view fill the whole
+     * screen and scroll independently, which breaks stacking multiple messages.
+     */
+    private fun applyEmbeddedLayout(view: View) {
+        view.layoutParams = (view.layoutParams ?: ViewGroup.LayoutParams(MATCH_PARENT, WRAP_CONTENT)).apply {
+            height = WRAP_CONTENT
+        }
+
+        val scrollView = view.findViewById<View>(R.id.message_scrollview)
+        (scrollView.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+            params.height = WRAP_CONTENT
+            params.weight = 0f
+            scrollView.layoutParams = params
+        }
+        // Content fits exactly at wrap_content, so there is nothing for the inner ScrollView to scroll. Disable
+        // its touch handling so vertical drags are handled by the enclosing conversation scroll container.
+        scrollView.isVerticalScrollBarEnabled = false
+        scrollView.setOnTouchListener { _, _ -> false }
+
+        // The message layout sizes several containers to match_parent so they fill the screen and scroll
+        // internally. Inside the conversation's unbounded scroll those collapse to zero height, hiding the body.
+        // Force them to wrap their content instead.
+        (scrollView as? ViewGroup)?.getChildAt(0)?.let { inner ->
+            inner.layoutParams = inner.layoutParams.apply { height = WRAP_CONTENT }
+        }
+        view.findViewById<View>(R.id.message_layout_animator)?.let { animator ->
+            animator.layoutParams = animator.layoutParams.apply { height = WRAP_CONTENT }
+        }
+
+        // Make the message header (sender/recipients row and subject) collapse the message when tapped. These
+        // override MessageHeader's own click handlers, which is fine inside the conversation stack.
+        val collapseClick = View.OnClickListener { embeddedCollapseListener?.invoke() }
+        view.findViewById<View>(R.id.participants_container)?.setOnClickListener(collapseClick)
+        view.findViewById<View>(R.id.subject)?.setOnClickListener(collapseClick)
     }
 
     private fun initializeMessageTopView(messageTopView: MessageTopView) {
@@ -1208,14 +1267,20 @@ class MessageViewFragment :
 
         private const val ARG_REFERENCE = "reference"
         private const val ARG_SHOW_ACCOUNT_INDICATOR = "showAccountIndicator"
+        private const val ARG_EMBEDDED = "embedded"
 
         private const val STATE_WAS_MESSAGE_MARKED_AS_OPENED = "wasMessageMarkedAsOpened"
         private const val STATE_IS_ACTIVE = "isActive"
 
-        fun newInstance(reference: MessageReference, showAccountIndicator: Boolean): MessageViewFragment {
+        fun newInstance(
+            reference: MessageReference,
+            showAccountIndicator: Boolean,
+            embedded: Boolean = false,
+        ): MessageViewFragment {
             return MessageViewFragment().withArguments(
                 ARG_REFERENCE to reference.toIdentityString(),
                 ARG_SHOW_ACCOUNT_INDICATOR to showAccountIndicator,
+                ARG_EMBEDDED to embedded,
             )
         }
     }

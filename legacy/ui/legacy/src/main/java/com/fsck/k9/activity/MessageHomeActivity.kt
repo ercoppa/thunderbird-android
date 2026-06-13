@@ -41,6 +41,7 @@ import com.fsck.k9.ui.BuildConfig
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.BaseActivity
 import com.fsck.k9.ui.managefolders.ManageFoldersActivity
+import com.fsck.k9.ui.messagelist.ConversationViewFragment
 import com.fsck.k9.ui.messagelist.DefaultFolderProvider
 import com.fsck.k9.ui.messagelist.MessageListFragmentBridgeContract
 import com.fsck.k9.ui.messagelist.MessageListFragmentBridgeContract.MessageListFragmentListener
@@ -1233,6 +1234,33 @@ open class MessageHomeActivity :
         addMessageListFragment(fragment)
     }
 
+    override fun openConversation(messageReference: MessageReference, account: LegacyAccount, threadRootId: Long) {
+        messageListFragment?.isActive = false
+
+        val fragment = ConversationViewFragment.newInstance(
+            accountUuid = account.uuid,
+            threadRootId = threadRootId,
+            initialReference = messageReference,
+            showAccountIndicator = isShowAccountIndicator,
+        )
+
+        supportFragmentManager.commit {
+            replace(R.id.message_list_container, fragment, FRAGMENT_TAG_CONVERSATION)
+            setReorderingAllowed(true)
+            if (supportFragmentManager.backStackEntryCount == 0) {
+                addToBackStack(FIRST_FRAGMENT_TRANSACTION)
+            } else {
+                addToBackStack(null)
+            }
+        }
+
+        if (isDrawerEnabled) {
+            lockDrawer()
+        }
+
+        collapseSearchView()
+    }
+
     private fun showMessageViewPlaceHolder() {
         removeMessageViewContainerFragment()
 
@@ -1529,6 +1557,7 @@ open class MessageHomeActivity :
         private const val FIRST_FRAGMENT_TRANSACTION = "first"
         private const val FRAGMENT_TAG_MESSAGE_VIEW_CONTAINER = "MessageViewContainerFragment"
         private const val FRAGMENT_TAG_PLACEHOLDER = "MessageViewPlaceholder"
+        private const val FRAGMENT_TAG_CONVERSATION = "ConversationViewFragment"
 
         private val defaultFolderProvider: DefaultFolderProvider by inject()
         private val coreResourceProvider: CoreResourceProvider by inject()
