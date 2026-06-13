@@ -32,14 +32,15 @@ class MessageListLoader(
     private val contactLetterBitmapCreator: ContactLetterBitmapCreator,
 ) {
 
-    fun getMessageList(config: MessageListConfig): MessageListInfo {
+    fun getMessageList(config: MessageListConfig): MessageListInfo? {
         return try {
             getMessageListInfo(config)
         } catch (e: Exception) {
             Log.e(e, "Error while fetching message list")
 
-            // TODO: Return an error object instead of an empty list
-            MessageListInfo(messageListItems = emptyList(), hasMoreMessages = false)
+            // Returning null keeps the previously displayed list instead of blanking the view. This matters
+            // during large syncs, where a single failed load used to make the folder appear empty.
+            null
         }
     }
 

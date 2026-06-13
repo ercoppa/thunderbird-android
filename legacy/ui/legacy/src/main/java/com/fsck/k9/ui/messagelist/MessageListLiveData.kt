@@ -22,12 +22,32 @@ class MessageListLiveData(
         loadMessageListAsync()
     }
 
+    // Both flags are only accessed from the main dispatcher.
+    private var loadRequested = false
+    private var isLoading = false
+
     private fun loadMessageListAsync() {
         coroutineScope.launch(Dispatchers.Main) {
-            val messageList = withContext(Dispatchers.IO) {
-                messageListLoader.getMessageList(config)
+            loadRequested = true
+            if (isLoading) return@launch
+
+            isLoading = true
+            try {
+                // During a sync the change listener can fire for every single message. Coalesce these events
+                // into one running query at a time; requests arriving while a query is in flight result in a
+                // single re-query afterwards. This also prevents a slow stale result from overwriting a newer one.
+                while (loadRequested) {
+                    loadRequested = false
+                    val messageList = withContext(Dispatchers.IO) {
+                        messageListLoader.getMessageList(config)
+                    }
+                    if (messageList != null) {
+                        value = messageList
+                    }
+                }
+            } finally {
+                isLoading = false
             }
-            value = messageList
         }
     }
 

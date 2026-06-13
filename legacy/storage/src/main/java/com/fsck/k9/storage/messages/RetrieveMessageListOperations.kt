@@ -271,6 +271,7 @@ WHERE messages.message_id IN ($placeholders)
         }
     }
 
+    @Suppress("LongMethod")
     private fun computeMergedThreadCounts(
         database: SQLiteDatabase,
         selection: String,
@@ -279,18 +280,97 @@ WHERE messages.message_id IN ($placeholders)
         val displayedRoots = rootsForSelection(database, selection, selectionArgs)
         if (displayedRoots.isEmpty()) return emptyMap()
 
-        val counts = HashMap<Long, Int>()
-        val processed = HashSet<Long>()
-        for (root in displayedRoots) {
-            if (root in processed) continue
-            val connectedRoots = collectConnectedThreadRoots(database, root)
-            val count = countRealMessagesInRoots(database, connectedRoots)
-            for (connectedRoot in connectedRoots) {
-                if (connectedRoot in displayedRoots) counts[connectedRoot] = count
+        // Group thread roots that share a Message-ID into components using a fixed number of queries and an
+        // in-memory union-find. Walking the graph with separate queries per displayed thread doesn't scale to
+        // large folders and could exceed SQLite's limit on bind variables.
+        val parent = HashMap<Long, Long>()
+
+        fun find(root: Long): Long {
+            var current = root
+            while (true) {
+                val next = parent[current] ?: break
+                if (next == current) break
+                current = next
             }
-            processed += connectedRoots
+            parent[root] = current
+            return current
         }
-        return counts
+
+        fun union(first: Long, second: Long) {
+            val firstComponent = find(first)
+            val secondComponent = find(second)
+            if (firstComponent != secondComponent) {
+                parent[secondComponent] = firstComponent
+            }
+        }
+
+        database.rawQuery(
+            """
+SELECT threads.root, messages.message_id
+FROM threads
+JOIN messages ON (messages.id = threads.message_id)
+WHERE threads.root IS NOT NULL AND messages.message_id IS NOT NULL
+            """,
+            null,
+        ).use { cursor ->
+            val firstRootByMessageId = HashMap<String, Long>()
+            while (cursor.moveToNext()) {
+                val root = cursor.getLong(0)
+                val messageId = cursor.getString(1) ?: continue
+                val firstRoot = firstRootByMessageId.putIfAbsent(messageId, root)
+                if (firstRoot != null && firstRoot != root) {
+                    union(firstRoot, root)
+                }
+            }
+        }
+
+        // Count "real" messages per component: distinct Message-IDs plus messages without a Message-ID.
+        val distinctMessageIdsByComponent = HashMap<Long, MutableSet<String>>()
+        database.rawQuery(
+            """
+SELECT threads.root, messages.message_id
+FROM threads
+JOIN messages ON (messages.id = threads.message_id)
+WHERE threads.root IS NOT NULL
+  AND messages.empty = 0 AND messages.deleted = 0
+  AND messages.message_id IS NOT NULL
+            """,
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val component = find(cursor.getLong(0))
+                val messageId = cursor.getString(1) ?: continue
+                distinctMessageIdsByComponent.getOrPut(component) { mutableSetOf() }.add(messageId)
+            }
+        }
+
+        val messagesWithoutMessageIdByComponent = HashMap<Long, Int>()
+        database.rawQuery(
+            """
+SELECT threads.root, COUNT(*)
+FROM threads
+JOIN messages ON (messages.id = threads.message_id)
+WHERE threads.root IS NOT NULL
+  AND messages.empty = 0 AND messages.deleted = 0
+  AND messages.message_id IS NULL
+GROUP BY threads.root
+            """,
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val component = find(cursor.getLong(0))
+                messagesWithoutMessageIdByComponent.merge(component, cursor.getInt(1), Int::plus)
+            }
+        }
+
+        return buildMap {
+            for (root in displayedRoots) {
+                val component = find(root)
+                val count = (distinctMessageIdsByComponent[component]?.size ?: 0) +
+                    (messagesWithoutMessageIdByComponent[component] ?: 0)
+                put(root, count)
+            }
+        }
     }
 
     private fun rootsForSelection(
@@ -318,32 +398,6 @@ WHERE ($selection)
         }
     }
 
-    private fun countRealMessagesInRoots(database: SQLiteDatabase, rootIds: Set<Long>): Int {
-        if (rootIds.isEmpty()) return 0
-        val placeholders = rootIds.joinToString(separator = ",") { "?" }
-        val args = rootIds.map { it.toString() }.toTypedArray()
-
-        return database.rawQuery(
-            """
-SELECT
-  (SELECT COUNT(DISTINCT messages.message_id)
-   FROM threads
-   JOIN messages ON (messages.id = threads.message_id)
-   WHERE threads.root IN ($placeholders)
-     AND messages.empty = 0 AND messages.deleted = 0
-     AND messages.message_id IS NOT NULL)
-  + (SELECT COUNT(*)
-     FROM threads
-     JOIN messages ON (messages.id = threads.message_id)
-     WHERE threads.root IN ($placeholders)
-       AND messages.empty = 0 AND messages.deleted = 0
-       AND messages.message_id IS NULL)
-            """,
-            args + args,
-        ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.getInt(0) else 0
-        }
-    }
 }
 
 private class CursorMessageAccessor(
