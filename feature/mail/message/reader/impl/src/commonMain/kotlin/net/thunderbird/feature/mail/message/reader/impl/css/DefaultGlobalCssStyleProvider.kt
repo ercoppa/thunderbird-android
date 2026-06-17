@@ -33,6 +33,22 @@ internal class DefaultGlobalCssStyleProvider private constructor(
         |  .${cssClassNameProvider.rootClassName}.${cssClassNameProvider.mainContentClassName} pre {
         |    white-space: pre-wrap;
         |  }
+        |  .k9mail-quote-toggle {
+        |    display: inline-block;
+        |    cursor: pointer;
+        |    margin: 8px 0;
+        |    padding: 0 12px;
+        |    line-height: 1.7;
+        |    border-radius: 12px;
+        |    background: rgba(127, 127, 127, 0.22);
+        |    color: inherit;
+        |    font-weight: bold;
+        |    letter-spacing: 1px;
+        |    list-style: none;
+        |  }
+        |  .k9mail-quote-toggle::-webkit-details-marker {
+        |    display: none;
+        |  }
         |  .${cssClassNameProvider.rootClassName}.${cssClassNameProvider.mainContentClassName} table {
         |    max-width: 100% !important;
         |  }
