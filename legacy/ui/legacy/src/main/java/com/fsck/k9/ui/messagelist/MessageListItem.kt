@@ -28,6 +28,7 @@ data class MessageListItem(
     val threadRoot: Long,
     @get:ColorInt
     val contactColor: Int,
+    val isOutgoing: Boolean = false,
 ) {
     val messageReference: MessageReference
         get() = MessageReference(account.uuid, folderId, messageUid)

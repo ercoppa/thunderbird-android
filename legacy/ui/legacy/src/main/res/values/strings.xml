@@ -61,6 +61,8 @@
     <string name="forward_action">Forward</string>
     <string name="forward_as_attachment_action">Forward as attachment</string>
     <string name="edit_as_new_message_action">Edit as new message</string>
+    <string name="edit_draft_action">Edit draft</string>
+    <string name="message_list_item_draft">Draft</string>
     <string name="move_action">Move</string>
     <string name="move_to_drafts_action">Move to Drafts</string>
     <string name="refile_action">Refile…</string>

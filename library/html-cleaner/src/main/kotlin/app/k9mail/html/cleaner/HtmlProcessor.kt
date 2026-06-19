@@ -31,6 +31,12 @@ class HtmlProcessor(
         // Don't fold when the quote is the whole message (nothing to read above it).
         if (!hasReadableContentBefore(boundary)) return@apply
 
+        // Don't fold interleaved/inline replies. When the author quotes pieces of the original and responds to each
+        // one in turn, folding "the first quote and everything after it" would wrongly hide those responses as if
+        // they were trailing reply history. Only the classic case (the author's text followed by a single trailing
+        // block of quoted material) should be folded.
+        if (hasInterleavedQuoting(boundary)) return@apply
+
         val details = Element("details").addClass(QUOTE_FOLD_CLASS)
         details.appendElement("summary").addClass(QUOTE_TOGGLE_CLASS).text(QUOTE_TOGGLE_LABEL)
 
@@ -69,6 +75,38 @@ class HtmlProcessor(
             val parent = node.parent() ?: break
             if (parent.nodeName().equals("body", ignoreCase = true)) break
             node = parent
+        }
+        return false
+    }
+
+    /**
+     * Detects interleaved (inline) replies, where the author quotes a piece of the original, responds, quotes another
+     * piece, responds, and so on. We walk the siblings the fold would absorb (the boundary and everything after it)
+     * and look for a quote boundary that appears *after* some of the author's own text.
+     *
+     * - Interleaved: `quote → author text → quote → …` — a later quote follows author text, so this returns true and
+     *   folding is skipped.
+     * - Classic top-post: `[reply header] → quoted original` — everything after the boundary is quoted material with
+     *   no further quote following author text (e.g. an Outlook `#divRplyFwdMsg` header followed by the original body
+     *   as plain text), so this returns false and the trailing block is folded.
+     */
+    private fun hasInterleavedQuoting(boundary: Element): Boolean {
+        var sawAuthorText = false
+        var sibling = boundary.nextSibling()
+        while (sibling != null) {
+            when (sibling) {
+                is TextNode -> if (!sibling.isBlank) sawAuthorText = true
+                is Element -> {
+                    val isQuote = sibling.`is`(QUOTE_BOUNDARY_SELECTOR) ||
+                        sibling.selectFirst(QUOTE_BOUNDARY_SELECTOR) != null
+                    if (isQuote) {
+                        if (sawAuthorText) return true
+                    } else if (sibling.text().isNotBlank()) {
+                        sawAuthorText = true
+                    }
+                }
+            }
+            sibling = sibling.nextSibling()
         }
         return false
     }

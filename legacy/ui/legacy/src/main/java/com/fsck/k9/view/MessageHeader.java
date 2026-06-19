@@ -14,6 +14,8 @@ import android.widget.LinearLayout;
 import android.widget.Toast;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
+import android.view.MenuItem;
+
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.TooltipCompat;
 import app.k9mail.core.ui.legacy.designsystem.atom.icon.Icons;
@@ -72,6 +74,8 @@ public class MessageHeader extends LinearLayout implements OnClickListener, OnLo
 
     private MessageHeaderClickListener messageHeaderClickListener;
     private ReplyActions replyActions;
+    private boolean canToggleRead;
+    private boolean messageIsRead;
 
 
     public MessageHeader(Context context, AttributeSet attrs) {
@@ -170,6 +174,15 @@ public class MessageHeader extends LinearLayout implements OnClickListener, OnLo
         });
         popupMenu.inflate(R.menu.single_message_options);
         setAdditionalReplyActions(popupMenu);
+
+        MenuItem toggleUnreadItem = popupMenu.getMenu().findItem(R.id.toggle_unread);
+        if (toggleUnreadItem != null) {
+            toggleUnreadItem.setVisible(canToggleRead);
+            toggleUnreadItem.setTitle(messageIsRead
+                    ? R.string.mark_as_unread_action
+                    : R.string.mark_as_read_action);
+        }
+
         popupMenu.show();
     }
 
@@ -243,6 +256,13 @@ public class MessageHeader extends LinearLayout implements OnClickListener, OnLo
         } else {
             starView.setVisibility(View.GONE);
         }
+
+        // The read/unread toggle is offered in the overflow menu for received messages (non-outbox and not sent by
+        // one of the account's own identities). This keeps the action reachable even when the message is shown
+        // embedded in the conversation view, where the activity toolbar's mark-as-unread button isn't present.
+        boolean isFromSelf = account.isAnIdentity(fromAddresses);
+        canToggleRead = showStar && !isFromSelf;
+        messageIsRead = message.isSet(Flag.SEEN);
 
         if (message.getSentDate() != null) {
             dateView.setText(

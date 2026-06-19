@@ -263,10 +263,10 @@ class MessageViewFragment :
             animator.layoutParams = animator.layoutParams.apply { height = WRAP_CONTENT }
         }
 
-        // Make the message header (sender/recipients row and subject) collapse the message when tapped. These
-        // override MessageHeader's own click handlers, which is fine inside the conversation stack.
+        // Tapping the subject collapses the message back into its card. We deliberately leave the participants row
+        // (R.id.participants_container) with its native handler so tapping it still opens the recipient details
+        // (to/cc/bcc) sheet instead of collapsing the message.
         val collapseClick = View.OnClickListener { embeddedCollapseListener?.invoke() }
-        view.findViewById<View>(R.id.participants_container)?.setOnClickListener(collapseClick)
         view.findViewById<View>(R.id.subject)?.setOnClickListener(collapseClick)
     }
 
@@ -327,17 +327,19 @@ class MessageViewFragment :
         menuHost.addMenuProvider(
             object : MenuProvider {
                 override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
-                    if (!isActive) return
+                    // When embedded in the conversation view, the hosting fragment owns the toolbar menu; per-message
+                    // actions are reachable from each card's header instead.
+                    if (!isActive || isEmbedded) return
                     menuInflater.inflate(R.menu.message_view_option_menu, menu)
                 }
 
                 override fun onPrepareMenu(menu: Menu) {
-                    if (!isActive) return
+                    if (!isActive || isEmbedded) return
                     prepareMenu(menu)
                 }
 
                 override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
-                    if (!isActive) return false
+                    if (!isActive || isEmbedded) return false
                     return selectMenuItem(menuItem)
                 }
             },
@@ -617,6 +619,7 @@ class MessageViewFragment :
                 R.id.forward_as_attachment -> onForwardAsAttachment()
                 R.id.edit_as_new_message -> onEditAsNewMessage()
                 R.id.share -> onSendAlternate()
+                R.id.toggle_unread -> onToggleRead()
                 else -> error("Missing handler for reply menu item $itemId")
             }
         }
@@ -946,7 +949,9 @@ class MessageViewFragment :
 
         toggleFlag(Flag.SEEN)
 
-        if (isMarkAsUnreadAction) {
+        // In the conversation view the message stays on screen, so don't navigate away after marking it unread; the
+        // navigation is only meaningful for the standalone message view.
+        if (isMarkAsUnreadAction && !isEmbedded) {
             fragmentListener.performNavigationAfterMarkAsUnread()
         }
     }

@@ -25,4 +25,9 @@
         android:id="@+id/share"
         android:title="@string/send_alternate_action"
         />
+    <item
+        android:id="@+id/toggle_unread"
+        android:title="@string/mark_as_unread_action"
+        android:visible="false"
+        />
 </menu>

@@ -538,8 +538,13 @@ open class MessageHomeActivity :
                 val searchAccountUuid = appData.getString(EXTRA_SEARCH_ACCOUNT)
                 if (searchAccountUuid != null) {
                     search.addAccountUuid(searchAccountUuid)
-                    // searches started from a folder list activity will provide an account, but no folder
-                    if (appData.containsKey(EXTRA_SEARCH_FOLDER)) {
+                    // searches started from a folder list activity will provide an account, but no folder.
+                    // With the conversation view enabled we want search to span every folder of the account (so a
+                    // result can be opened as a cross-folder conversation), so we keep the account but drop the
+                    // single-folder restriction.
+                    val conversationViewEnabled =
+                        generalSettingsManager.getConfig().display.inboxSettings.isConversationViewEnabled
+                    if (appData.containsKey(EXTRA_SEARCH_FOLDER) && !conversationViewEnabled) {
                         val folderId = appData.getLong(EXTRA_SEARCH_FOLDER)
                         search.addAllowedFolder(folderId)
                     }
@@ -1234,13 +1239,19 @@ open class MessageHomeActivity :
         addMessageListFragment(fragment)
     }
 
-    override fun openConversation(messageReference: MessageReference, account: LegacyAccount, threadRootId: Long) {
+    override fun openConversation(
+        messageReference: MessageReference,
+        account: LegacyAccount,
+        threadRootId: Long,
+        initialMessageDate: Long,
+    ) {
         messageListFragment?.isActive = false
 
         val fragment = ConversationViewFragment.newInstance(
             accountUuid = account.uuid,
             threadRootId = threadRootId,
             initialReference = messageReference,
+            initialMessageDate = initialMessageDate,
             showAccountIndicator = isShowAccountIndicator,
         )
 

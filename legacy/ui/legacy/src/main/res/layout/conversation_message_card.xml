@@ -38,6 +38,19 @@
             >
 
             <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/conversation_card_draft_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/message_list_item_draft"
+                android:textAllCaps="true"
+                android:textStyle="bold"
+                android:textColor="?attr/colorError"
+                android:textAppearance="?attr/textAppearanceLabelSmall"
+                android:visibility="gone"
+                tools:visibility="visible"
+                />
+
+            <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/conversation_card_sender"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -68,6 +81,20 @@
             android:textAppearance="?attr/textAppearanceBodySmall"
             android:textColor="?android:attr/textColorSecondary"
             tools:text="6/8"
+            />
+
+        <ImageView
+            android:id="@+id/conversation_card_edit_draft"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/edit_draft_action"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone"
+            tools:src="@drawable/ic_edit"
+            tools:visibility="visible"
             />
 
     </LinearLayout>

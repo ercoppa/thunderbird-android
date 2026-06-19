@@ -827,12 +827,15 @@ class LegacyMessageListFragment :
             lastMessageClick = clickTime
             val conversationViewEnabled =
                 generalSettingsManager.getConfig().display.inboxSettings.isConversationViewEnabled
-            if (showingThreadedList && conversationViewEnabled) {
+            if (conversationViewEnabled && (showingThreadedList || isManualSearch)) {
                 // Open the conversation directly (Gmail-style). Single-message conversations show one expanded card.
+                // Search results are a flat list, but with the conversation view enabled tapping a result should
+                // still open the surrounding (cross-folder) conversation rather than the isolated message.
                 fragmentListener.openConversation(
                     messageListItem.messageReference,
                     messageListItem.account,
                     messageListItem.threadRoot,
+                    messageListItem.messageDate,
                 )
             } else if (showingThreadedList && messageListItem.threadCount > 1) {
                 // Conversation view disabled: fall back to the flat thread list.
